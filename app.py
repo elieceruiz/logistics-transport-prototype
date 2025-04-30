@@ -1,23 +1,26 @@
 import streamlit as st
-import json
 from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 import pytz
 
-# Zona horaria Colombia
+# Configuración inicial
+st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
+
+# Zona horaria de Bogotá
 tz = pytz.timezone("America/Bogota")
 
-# Carga de variables de entorno
+# Cargar URI de entorno
 load_dotenv()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz%2A@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
+# Conexión MongoDB
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Escenarios logísticos
+# Definir escenarios
 scenarios = {
     "Lost order": {
         "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
@@ -52,34 +55,56 @@ scenarios = {
     }
 }
 
-# Interfaz
-st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
-st.title("ZARA – Logistics Transport Prototype")
-st.markdown("Select a scenario and follow the guided checklist.")
+# Tabs
+tab1, tab2 = st.tabs(["Register Interaction", "History"])
 
-selected = st.selectbox("Select reason:", list(scenarios.keys()))
+# TAB 1 – Registro
+with tab1:
+    st.title("ZARA – Logistics Transport Prototype")
+    st.markdown("Select a scenario and follow the guided checklist.")
 
-if selected:
-    st.subheader("Scenario Description")
-    st.markdown(scenarios[selected]["description"])
+    selected = st.selectbox("Select reason:", list(scenarios.keys()))
 
-    st.subheader("Step-by-Step")
-    for i, step in enumerate(scenarios[selected]["steps"]):
-        st.checkbox(step, key=f"step_{i}")
+    if selected:
+        st.subheader("Scenario Description")
+        st.markdown(scenarios[selected]["description"])
 
-    st.subheader("Suggested MOCA Template")
-    st.markdown(f"**{scenarios[selected]['moca_template']}**")
+        st.subheader("Step-by-Step")
+        for i, step in enumerate(scenarios[selected]["steps"]):
+            st.checkbox(step, key=f"step_{i}")
 
-    st.subheader("Agent Notes")
-    notes = st.text_area("Add relevant notes here:")
+        st.subheader("Suggested MOCA Template")
+        st.markdown(f"**{scenarios[selected]['moca_template']}**")
 
-    if st.button("Save Interaction"):
-        doc = {
-            "timestamp": datetime.now(tz).isoformat(),
-            "category": selected,
-            "steps": scenarios[selected]["steps"],
-            "moca_template": scenarios[selected]["moca_template"],
-            "notes": notes
-        }
-        collection.insert_one(doc)
-        st.success("Interaction saved to MongoDB successfully!")
+        st.subheader("Agent Notes")
+        notes = st.text_area("Add relevant notes here:")
+
+        if st.button("Save Interaction"):
+            doc = {
+                "timestamp": datetime.now(tz).isoformat(),
+                "category": selected,
+                "steps": scenarios[selected]["steps"],
+                "moca_template": scenarios[selected]["moca_template"],
+                "notes": notes
+            }
+            collection.insert_one(doc)
+            st.success("Interaction saved to MongoDB successfully!")
+
+# TAB 2 – Historial
+with tab2:
+    st.title("Interaction History")
+    docs = list(collection.find().sort("timestamp", -1))
+
+    if not docs:
+        st.info("No interactions found yet.")
+    else:
+        data = []
+        for doc in docs:
+            data.append({
+                "Date": doc["timestamp"][:19].replace("T", " "),
+                "Category": doc["category"],
+                "MOCA Template": doc["moca_template"],
+                "Notes": doc.get("notes", "")
+            })
+
+        st.dataframe(data, use_container_width=True)
