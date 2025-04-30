@@ -13,7 +13,7 @@ tz = pytz.timezone("America/Bogota")
 
 # Cargar URI de entorno
 load_dotenv()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz%2A@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 # Conexión MongoDB
 client = MongoClient(MONGO_URI)
