@@ -4,16 +4,20 @@ from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
+import pytz
 
-# Load Mongo credentials
+# Zona horaria Colombia
+tz = pytz.timezone("America/Bogota")
+
+# Carga de variables de entorno
 load_dotenv()
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Logistics – Transport Scenarios
+# Escenarios logísticos
 scenarios = {
     "Lost order": {
         "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
@@ -48,7 +52,7 @@ scenarios = {
     }
 }
 
-# Streamlit UI
+# Interfaz
 st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
 st.title("ZARA – Logistics Transport Prototype")
 st.markdown("Select a scenario and follow the guided checklist.")
@@ -71,7 +75,7 @@ if selected:
 
     if st.button("Save Interaction"):
         doc = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(tz).isoformat(),
             "category": selected,
             "steps": scenarios[selected]["steps"],
             "moca_template": scenarios[selected]["moca_template"],
