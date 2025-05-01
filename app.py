@@ -4,6 +4,7 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 import pytz
+import requests
 
 # Configuración inicial
 st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
@@ -11,12 +12,44 @@ st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
 # Zona horaria Bogotá
 tz = pytz.timezone("America/Bogota")
 
-# Conexión MongoDB
+# Cargar variables de entorno
 load_dotenv()
+
+# Conexión MongoDB
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/zara_db?retryWrites=true&w=majority&appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
+
+# Registrar acceso y notificar vía Telegram
+def log_and_notify_access():
+    try:
+        ip_data = requests.get("https://ipinfo.io").json()
+        ip = ip_data.get("ip", "N/A")
+        city = ip_data.get("city", "Unknown")
+        country = ip_data.get("country", "Unknown")
+
+        message = f"⚠️ Nueva visita a la app\nIP: {ip}\nUbicación: {city}, {country}"
+
+        telegram_token = os.getenv("TELEGRAM_TOKEN")
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if telegram_token and telegram_chat_id:
+            url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+            data = {"chat_id": telegram_chat_id, "text": message}
+            requests.post(url, data=data)
+
+        db["access_logs"].insert_one({
+            "timestamp": datetime.now(tz).isoformat(),
+            "ip": ip,
+            "city": city,
+            "country": country
+        })
+
+    except Exception as e:
+        print("Error al registrar acceso:", e)
+
+# Ejecutar al inicio
+log_and_notify_access()
 
 # Escenarios
 scenarios = {
