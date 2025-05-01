@@ -8,15 +8,11 @@ import requests
 
 # Configuración inicial
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
-
-# Zona horaria Bogotá
 tz = pytz.timezone("America/Bogota")
-
-# Cargar variables de entorno
 load_dotenv()
 
 # Conexión MongoDB
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/zara_db?retryWrites=true&w=majority&appName=Cluster0")
+MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
@@ -30,9 +26,9 @@ def log_and_notify_access():
         country = ip_data.get("country", "Unknown")
 
         message = f"⚠️ Nueva visita a la app\nIP: {ip}\nUbicación: {city}, {country}"
-
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+
         if telegram_token and telegram_chat_id:
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             data = {"chat_id": telegram_chat_id, "text": message}
@@ -48,7 +44,6 @@ def log_and_notify_access():
     except Exception as e:
         print("Error al registrar acceso:", e)
 
-# Ejecutar al inicio
 log_and_notify_access()
 
 # Escenarios
@@ -86,10 +81,10 @@ scenarios = {
     }
 }
 
-# Tabs
-tab1, tab2 = st.tabs(["Register Interaction", "History"])
+# Tabs principales
+tab1, tab2, tab3 = st.tabs(["Register Interaction", "History", "Access Logs"])
 
-# TAB 1 - Registro
+# TAB 1 – Registro
 with tab1:
     st.title("ZARA - Logistics Transport Prototype")
     st.markdown("Start typing to search or select a case reason.")
@@ -126,7 +121,7 @@ with tab1:
             collection.insert_one(doc)
             st.success("Interaction saved to MongoDB successfully!")
 
-# TAB 2 - Historial
+# TAB 2 – Historial
 with tab2:
     st.title("Interaction History")
     docs = list(collection.find().sort("timestamp", -1))
@@ -144,3 +139,22 @@ with tab2:
             })
 
         st.dataframe(data, use_container_width=True)
+
+# TAB 3 – Logs de Acceso
+with tab3:
+    st.title("Access Logs")
+    logs = list(db["access_logs"].find().sort("timestamp", -1))
+
+    if not logs:
+        st.info("No access logs found.")
+    else:
+        access_data = []
+        for log in logs:
+            access_data.append({
+                "Date": log["timestamp"][:19].replace("T", " "),
+                "IP": log.get("ip", "N/A"),
+                "City": log.get("city", "Unknown"),
+                "Country": log.get("country", "Unknown")
+            })
+
+        st.dataframe(access_data, use_container_width=True)
