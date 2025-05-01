@@ -8,19 +8,17 @@ import pytz
 # Configuración inicial
 st.set_page_config(page_title="ZARA – Logistics Prototype", layout="centered")
 
-# Zona horaria de Bogotá
+# Zona horaria Bogotá
 tz = pytz.timezone("America/Bogota")
 
-# Cargar URI de entorno
-load_dotenv()
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-
 # Conexión MongoDB
+load_dotenv()
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/zara_db?retryWrites=true&w=majority&appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Definir escenarios
+# Escenarios
 scenarios = {
     "Lost order": {
         "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
@@ -61,9 +59,14 @@ tab1, tab2 = st.tabs(["Register Interaction", "History"])
 # TAB 1 – Registro
 with tab1:
     st.title("ZARA – Logistics Transport Prototype")
-    st.markdown("Select a scenario and follow the guided checklist.")
+    st.markdown("Start typing to search or select a case reason.")
 
-    selected = st.selectbox("Select reason:", list(scenarios.keys()))
+    selected = st.selectbox(
+        "Select reason:",
+        options=list(scenarios.keys()),
+        index=None,
+        placeholder="Start typing or choose a scenario..."
+    )
 
     if selected:
         st.subheader("Scenario Description")
