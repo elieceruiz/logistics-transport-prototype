@@ -1,10 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from datetime import datetime
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 import pytz
 import requests
+import streamlit_javascript as stj
 
 # Configuración inicial
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
@@ -18,13 +20,8 @@ db = client["zara_db"]
 collection = db["logistics_interactions"]
 
 # Registrar acceso y notificar vía Telegram
-def log_and_notify_access():
+def log_and_notify_access(ip, city, country):
     try:
-        ip_data = requests.get("https://ipinfo.io").json()
-        ip = ip_data.get("ip", "N/A")
-        city = ip_data.get("city", "Unknown")
-        country = ip_data.get("country", "Unknown")
-
         message = f"⚠️ Nueva visita a la app\nIP: {ip}\nUbicación: {city}, {country}"
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -44,7 +41,41 @@ def log_and_notify_access():
     except Exception as e:
         print("Error al registrar acceso:", e)
 
-log_and_notify_access()
+# Capturar IP del visitante usando Javascript y cookies
+st.title("Captura de IP del visitante")
+
+# Crear un área para mostrar la IP
+ip_slot = st.empty()
+
+# HTML+JS para obtener la IP pública y pasarla a Streamlit vía cookies
+components.html(
+    """
+    <script>
+    fetch("https://api.ipify.org?format=json")
+        .then(response => response.json())
+        .then(data => {
+            document.cookie = "client_ip=" + data.ip;
+            window.location.reload();  // Recarga para que Python lea la cookie
+        });
+    </script>
+    """,
+    height=0
+)
+
+# Leer la cookie desde Streamlit
+client_ip = stj.st_javascript("document.cookie").split("client_ip=")[-1].split(";")[0] if "client_ip=" in stj.st_javascript("document.cookie") else None
+
+if client_ip:
+    ip_slot.success(f"IP del visitante: {client_ip}")
+    # Obtener ubicación geográfica basada en la IP
+    ip_data = requests.get(f"https://ipinfo.io/{client_ip}/json").json()
+    city = ip_data.get("city", "Unknown")
+    country = ip_data.get("country", "Unknown")
+
+    # Registrar acceso en MongoDB y notificar via Telegram
+    log_and_notify_access(client_ip, city, country)
+else:
+    ip_slot.warning("Obteniendo IP...")
 
 # Escenarios
 scenarios = {
