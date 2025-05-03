@@ -20,7 +20,7 @@ client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Inserta el JavaScript para obtener IP y guardarla como cookie
+# Inserta el JavaScript para obtener IP y guardarla como cookie, y también para obtener el navegador
 components.html(
     """
     <script>
@@ -32,21 +32,29 @@ components.html(
                 location.reload();
             });
     }
+
+    // Captura el navegador y sistema operativo
+    var userAgent = navigator.userAgent;
+    if (!document.cookie.includes("client_user_agent")) {
+        document.cookie = "client_user_agent=" + userAgent + "; path=/";
+    }
     </script>
     """,
     height=0
 )
 
-# Intentamos leer la IP con streamlit_javascript
+# Intentamos leer la IP y el User-Agent con streamlit_javascript
 try:
     import streamlit_javascript as stj
     cookie_js = stj.st_javascript("document.cookie")
     client_ip = cookie_js.split("client_ip=")[-1].split(";")[0] if "client_ip=" in cookie_js else None
+    client_user_agent = cookie_js.split("client_user_agent=")[-1].split(";")[0] if "client_user_agent=" in cookie_js else None
 except Exception:
     client_ip = None
+    client_user_agent = None
 
 # Registrar acceso
-def log_and_notify_access(ip):
+def log_and_notify_access(ip, user_agent):
     try:
         ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
         city = ip_data.get("city", "Unknown")
@@ -56,7 +64,7 @@ def log_and_notify_access(ip):
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if telegram_token and telegram_chat_id:
-            message = f"⚠️ Nueva visita a la app\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}"
+            message = f"⚠️ Nueva visita a la app\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}\nNavegador: {user_agent or 'N/A'}"
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
 
@@ -65,17 +73,19 @@ def log_and_notify_access(ip):
             "timestamp": datetime.now(tz).isoformat(),
             "ip": ip or "N/A",
             "city": city,
-            "country": country
+            "country": country,
+            "user_agent": user_agent or "N/A"
         })
     except Exception as e:
         st.error(f"Error registrando acceso: {e}")
 
 if "logged_ip" not in st.session_state and client_ip:
-    log_and_notify_access(client_ip)
+    log_and_notify_access(client_ip, client_user_agent)
     st.session_state.logged_ip = True
 
-# Mostrar IP
+# Mostrar IP y navegador
 st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
+st.markdown(f"**Navegador:** `{client_user_agent or 'Obteniendo...'}`")
 
 # Escenarios
 scenarios = {
@@ -168,6 +178,7 @@ with tab3:
                 "Date": log["timestamp"][:19].replace("T", " "),
                 "IP": log.get("ip", "N/A"),
                 "City": log.get("city", "Unknown"),
-                "Country": log.get("country", "Unknown")
+                "Country": log.get("country", "Unknown"),
+                "User Agent": log.get("user_agent", "Unknown")
             } for log in logs
         ], use_container_width=True)
