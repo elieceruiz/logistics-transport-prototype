@@ -9,32 +9,35 @@ import requests
 
 # Cargar variables de entorno
 load_dotenv()
-tz = pytz.timezone("America/Bogota")
 
 # Configuración de página
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
+tz = pytz.timezone("America/Bogota")
 
-# Conexión Mongo
+# Conexión a MongoDB
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# JavaScript para obtener la IP
-components.html("""
-<script>
-if (!document.cookie.includes("client_ip")) {
-    fetch("https://api.ipify.org?format=json")
-    .then(response => response.json())
-    .then(data => {
-        document.cookie = "client_ip=" + data.ip + "; path=/";
-        location.reload();
-    });
-}
-</script>
-""", height=0)
+# Obtener IP pública con JS y guardarla como cookie
+components.html(
+    """
+    <script>
+    if (!document.cookie.includes("client_ip")) {
+        fetch("https://api.ipify.org?format=json")
+            .then(response => response.json())
+            .then(data => {
+                document.cookie = "client_ip=" + data.ip + "; path=/";
+                location.reload();
+            });
+    }
+    </script>
+    """,
+    height=0
+)
 
-# Obtener IP desde cookie
+# Intentar leer la cookie de IP
 try:
     import streamlit_javascript as stj
     cookie_js = stj.st_javascript("document.cookie")
@@ -42,29 +45,28 @@ try:
 except Exception:
     client_ip = None
 
-# Registrar acceso
+# Registrar IP en MongoDB y enviar a Telegram
 def log_and_notify_access(ip):
     try:
         ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
         city = ip_data.get("city", "Unknown")
         country = ip_data.get("country", "Unknown")
 
-        # Telegram
+        # Notificación Telegram
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if telegram_token and telegram_chat_id:
-            message = f"⚠️ Nueva visita\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}"
+            message = f"⚠️ Nueva visita a la app\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}"
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
 
-        # Mongo log
+        # Registro en Mongo
         db["access_logs"].insert_one({
             "timestamp": datetime.now(tz).isoformat(),
             "ip": ip or "N/A",
             "city": city,
             "country": country
         })
-
     except Exception as e:
         st.error(f"Error registrando acceso: {e}")
 
@@ -75,36 +77,36 @@ if "logged_ip" not in st.session_state and client_ip:
 # Mostrar IP al usuario
 st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
 
-# Escenarios de ejemplo
+# Definir escenarios
 scenarios = {
     "Lost order": {
-        "description": "Customer claims they did not receive their order.",
+        "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
         "steps": [
-            "✔️ Validate identity",
-            "✔️ Check GIPI delivery status",
-            "✔️ Ask if someone else received it",
-            "✔️ Open BO case",
-            "✔️ Inform about 72h investigation"
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Open GIPI and verify the order status...",
+            "✔️ If marked as 'Delivered', ask if someone else might have received it...",
+            "✔️ If customer denies receipt, open BO case using MOCA template...",
+            "✔️ Inform the customer that investigation may take up to 72 hours..."
         ],
         "moca_template": "Lost Order"
     },
     "New delivery attempt": {
-        "description": "Customer requests a second delivery attempt.",
+        "description": "Customer requests a second delivery attempt after the first one failed.",
         "steps": [
-            "✔️ Validate identity",
-            "✔️ Check failed delivery attempt",
-            "✔️ Use MOCA: Reschedule Delivery",
-            "✔️ Confirm new attempt"
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Check GIPI for failed delivery attempt...",
+            "✔️ Use MOCA template: 'Reschedule Delivery'...",
+            "✔️ Confirm new attempt with the customer..."
         ],
         "moca_template": "Reschedule Delivery"
     },
     "Partial delivery": {
-        "description": "Customer received only part of the order.",
+        "description": "Customer received only part of the order; some items are missing.",
         "steps": [
-            "✔️ Validate identity",
-            "✔️ Ask for missing items",
-            "✔️ Check if sent in multiple packages",
-            "✔️ Provide ETA or open MOCA"
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Ask the customer which items were missing...",
+            "✔️ Check in GIPI if the order was shipped in multiple packages...",
+            "✔️ If items are in transit, provide ETA. If not, use MOCA template..."
         ],
         "moca_template": "Missing Items"
     }
@@ -116,7 +118,7 @@ tab1, tab2, tab3 = st.tabs(["Register Interaction", "History", "Access Logs"])
 # TAB 1
 with tab1:
     st.title("ZARA - Logistics Transport Prototype")
-    selected = st.selectbox("Select reason:", list(scenarios.keys()), index=None, placeholder="Choose scenario...")
+    selected = st.selectbox("Select reason:", options=list(scenarios.keys()), index=None, placeholder="Choose a scenario...")
     if selected:
         st.subheader("Scenario Description")
         st.markdown(scenarios[selected]["description"])
@@ -151,23 +153,23 @@ with tab2:
                 "Category": doc["category"],
                 "MOCA Template": doc["moca_template"],
                 "Notes": doc.get("notes", "")
-            }
-            for doc in docs
-        ])
+            } for doc in docs
+        ], use_container_width=True)
 
 # TAB 3
 with tab3:
     st.title("Access Logs")
     logs = list(db["access_logs"].find().sort("timestamp", -1))
     if not logs:
-        st.info("No access logs yet.")
+        st.info("No access logs found yet.")
     else:
         st.dataframe([
             {
+                "No.": idx + 1,
                 "Date": log["timestamp"][:19].replace("T", " "),
                 "IP": log["ip"],
-                "City": log["city"],
-                "Country": log["country"]
+                "City": log.get("city", "Unknown"),
+                "Country": log.get("country", "Unknown")
             }
-            for log in logs
-        ])
+            for idx, log in enumerate(logs)
+        ], use_container_width=True)
