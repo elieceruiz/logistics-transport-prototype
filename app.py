@@ -6,141 +6,129 @@ from dotenv import load_dotenv
 import os
 import pytz
 import requests
-import streamlit_javascript as stj
 
-# Configuración inicial
-st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
-tz = pytz.timezone("America/Bogota")
+# Carga de variables de entorno
 load_dotenv()
 
-# Conexión MongoDB
+# Configuración de página
+st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
+tz = pytz.timezone("America/Bogota")
+
+# MongoDB
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Registrar acceso y notificar vía Telegram
-def log_and_notify_access(ip, city, country):
-    try:
-        message = f"⚠️ Nueva visita a la app\nIP: {ip}\nUbicación: {city}, {country}"
-        telegram_token = os.getenv("TELEGRAM_TOKEN")
-        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-
-        if telegram_token and telegram_chat_id:
-            url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
-            data = {"chat_id": telegram_chat_id, "text": message}
-            requests.post(url, data=data)
-
-        db["access_logs"].insert_one({
-            "timestamp": datetime.now(tz).isoformat(),
-            "ip": ip,
-            "city": city,
-            "country": country
-        })
-
-    except Exception as e:
-        print("Error al registrar acceso:", e)
-
-# Capturar IP del visitante usando Javascript y cookies
-st.title("Captura de IP del visitante")
-
-# Crear un área para mostrar la IP
-ip_slot = st.empty()
-
-# HTML+JS para obtener la IP pública y pasarla a Streamlit vía cookies
+# Inserta el JavaScript para obtener IP y guardarla como cookie
 components.html(
     """
     <script>
-    fetch("https://api.ipify.org?format=json")
-        .then(response => response.json())
-        .then(data => {
-            document.cookie = "client_ip=" + data.ip;
-            window.location.reload();  // Recarga para que Python lea la cookie
-        });
+    if (!document.cookie.includes("client_ip")) {
+        fetch("https://api.ipify.org?format=json")
+            .then(response => response.json())
+            .then(data => {
+                document.cookie = "client_ip=" + data.ip + "; path=/";
+                location.reload();
+            });
+    }
     </script>
     """,
     height=0
 )
 
-# Leer la cookie desde Streamlit
-client_ip = stj.st_javascript("document.cookie").split("client_ip=")[-1].split(";")[0] if "client_ip=" in stj.st_javascript("document.cookie") else None
+# Intentamos leer la IP con streamlit_javascript
+try:
+    import streamlit_javascript as stj
+    cookie_js = stj.st_javascript("document.cookie")
+    client_ip = cookie_js.split("client_ip=")[-1].split(";")[0] if "client_ip=" in cookie_js else None
+except Exception:
+    client_ip = None
 
-if client_ip:
-    ip_slot.success(f"IP del visitante: {client_ip}")
-    # Obtener ubicación geográfica basada en la IP
-    ip_data = requests.get(f"https://ipinfo.io/{client_ip}/json").json()
-    city = ip_data.get("city", "Unknown")
-    country = ip_data.get("country", "Unknown")
+# Registrar acceso
+def log_and_notify_access(ip):
+    try:
+        ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
+        city = ip_data.get("city", "Unknown")
+        country = ip_data.get("country", "Unknown")
 
-    # Registrar acceso en MongoDB y notificar via Telegram
-    log_and_notify_access(client_ip, city, country)
-else:
-    ip_slot.warning("Obteniendo IP...")
+        # Telegram
+        telegram_token = os.getenv("TELEGRAM_TOKEN")
+        telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        if telegram_token and telegram_chat_id:
+            message = f"⚠️ Nueva visita a la app\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}"
+            url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+            requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
+
+        # Mongo
+        db["access_logs"].insert_one({
+            "timestamp": datetime.now(tz).isoformat(),
+            "ip": ip or "N/A",
+            "city": city,
+            "country": country
+        })
+    except Exception as e:
+        st.error(f"Error registrando acceso: {e}")
+
+if "logged_ip" not in st.session_state and client_ip:
+    log_and_notify_access(client_ip)
+    st.session_state.logged_ip = True
+
+# Mostrar IP
+st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
 
 # Escenarios
 scenarios = {
     "Lost order": {
         "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA: collect at least 3 of the following — order number, email, associated phone, full name.",
-            "✔️ Open GIPI and verify the order status.",
-            "✔️ If marked as 'Delivered', ask if someone else might have received it.",
-            "✔️ If customer denies receipt, open BO case using MOCA template: 'Lost Order'.",
-            "✔️ Inform the customer that investigation may take up to 72 hours and they will be contacted by logistics."
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Open GIPI and verify the order status...",
+            "✔️ If marked as 'Delivered', ask if someone else might have received it...",
+            "✔️ If customer denies receipt, open BO case using MOCA template...",
+            "✔️ Inform the customer that investigation may take up to 72 hours..."
         ],
         "moca_template": "Lost Order"
     },
     "New delivery attempt": {
         "description": "Customer requests a second delivery attempt after the first one failed.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA: collect at least 3 of the following — order number, email, associated phone, full name.",
-            "✔️ Check GIPI for failed delivery attempt.",
-            "✔️ Use MOCA template: 'Reschedule Delivery' to document request.",
-            "✔️ Confirm new attempt with the customer and share the estimated delivery date."
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Check GIPI for failed delivery attempt...",
+            "✔️ Use MOCA template: 'Reschedule Delivery'...",
+            "✔️ Confirm new attempt with the customer..."
         ],
         "moca_template": "Reschedule Delivery"
     },
     "Partial delivery": {
         "description": "Customer received only part of the order; some items are missing.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA: collect at least 3 of the following — order number, email, associated phone, full name.",
-            "✔️ Ask the customer which items were missing.",
-            "✔️ Check in GIPI if the order was shipped in multiple packages.",
-            "✔️ If items are in transit, provide ETA. If not, use MOCA template: 'Missing Items'."
+            "✔️ Greet the customer and validate identity following DPA...",
+            "✔️ Ask the customer which items were missing...",
+            "✔️ Check in GIPI if the order was shipped in multiple packages...",
+            "✔️ If items are in transit, provide ETA. If not, use MOCA template..."
         ],
         "moca_template": "Missing Items"
     }
 }
 
-# Tabs principales
+# Tabs
 tab1, tab2, tab3 = st.tabs(["Register Interaction", "History", "Access Logs"])
 
-# TAB 1 – Registro
+# TAB 1
 with tab1:
     st.title("ZARA - Logistics Transport Prototype")
-    st.markdown("Start typing to search or select a case reason.")
-
-    selected = st.selectbox(
-        "Select reason:",
-        options=list(scenarios.keys()),
-        index=None,
-        placeholder="Start typing or choose a scenario..."
-    )
-
+    selected = st.selectbox("Select reason:", options=list(scenarios.keys()), index=None, placeholder="Choose a scenario...")
     if selected:
         st.subheader("Scenario Description")
         st.markdown(scenarios[selected]["description"])
-
         st.subheader("Step-by-Step")
         for i, step in enumerate(scenarios[selected]["steps"]):
             st.checkbox(step, key=f"step_{i}")
-
         st.subheader("Suggested MOCA Template")
         st.markdown(f"**{scenarios[selected]['moca_template']}**")
-
         st.subheader("Agent Notes")
         notes = st.text_area("Add relevant notes here:")
-
         if st.button("Save Interaction"):
             doc = {
                 "timestamp": datetime.now(tz).isoformat(),
@@ -150,42 +138,36 @@ with tab1:
                 "notes": notes
             }
             collection.insert_one(doc)
-            st.success("Interaction saved to MongoDB successfully!")
+            st.success("Interaction saved successfully!")
 
-# TAB 2 – Historial
+# TAB 2
 with tab2:
     st.title("Interaction History")
     docs = list(collection.find().sort("timestamp", -1))
-
     if not docs:
         st.info("No interactions found yet.")
     else:
-        data = []
-        for doc in docs:
-            data.append({
+        st.dataframe([
+            {
                 "Date": doc["timestamp"][:19].replace("T", " "),
                 "Category": doc["category"],
                 "MOCA Template": doc["moca_template"],
                 "Notes": doc.get("notes", "")
-            })
+            } for doc in docs
+        ], use_container_width=True)
 
-        st.dataframe(data, use_container_width=True)
-
-# TAB 3 – Logs de Acceso
+# TAB 3
 with tab3:
     st.title("Access Logs")
     logs = list(db["access_logs"].find().sort("timestamp", -1))
-
     if not logs:
         st.info("No access logs found.")
     else:
-        access_data = []
-        for log in logs:
-            access_data.append({
+        st.dataframe([
+            {
                 "Date": log["timestamp"][:19].replace("T", " "),
                 "IP": log.get("ip", "N/A"),
                 "City": log.get("city", "Unknown"),
                 "Country": log.get("country", "Unknown")
-            })
-
-        st.dataframe(access_data, use_container_width=True)
+            } for log in logs
+        ], use_container_width=True)
