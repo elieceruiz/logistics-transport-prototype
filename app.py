@@ -42,33 +42,9 @@ try:
 except Exception:
     client_ip = None
 
-# Función para detectar navegador
-def get_browser_name(ua):
-    if not ua:
-        return "Unknown"
-    ua = ua.lower()
-    if "vivaldi" in ua:
-        return "Vivaldi"
-    elif "edg" in ua:
-        return "Edge"
-    elif "opr" in ua or "opera" in ua:
-        return "Opera"
-    elif "brave" in ua:
-        return "Brave"
-    elif "chrome" in ua and "chromium" not in ua:
-        return "Chrome"
-    elif "firefox" in ua:
-        return "Firefox"
-    elif "safari" in ua and "chrome" not in ua:
-        return "Safari"
-    else:
-        return "Other"
-
 # Registrar acceso
 def log_and_notify_access(ip):
     try:
-        ua = stj.st_javascript("navigator.userAgent")
-        browser = get_browser_name(ua)
         ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
         city = ip_data.get("city", "Unknown")
         country = ip_data.get("country", "Unknown")
@@ -77,7 +53,7 @@ def log_and_notify_access(ip):
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if telegram_token and telegram_chat_id:
-            message = f"⚠️ Nueva visita\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}\nNavegador: {browser}"
+            message = f"⚠️ Nueva visita\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}"
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
 
@@ -86,9 +62,7 @@ def log_and_notify_access(ip):
             "timestamp": datetime.now(tz).isoformat(),
             "ip": ip or "N/A",
             "city": city,
-            "country": country,
-            "user_agent": ua,
-            "browser": browser
+            "country": country
         })
 
     except Exception as e:
@@ -164,31 +138,36 @@ with tab1:
             collection.insert_one(doc)
             st.success("Interaction saved successfully!")
 
-# TAB 2 - Historial
+# TAB 2
 with tab2:
     st.title("Interaction History")
     docs = list(collection.find().sort("timestamp", -1))
     if not docs:
-        st.info("No interactions found.")
+        st.info("No interactions found yet.")
     else:
-        st.dataframe([{
-            "Date": doc["timestamp"][:19].replace("T", " "),
-            "Category": doc["category"],
-            "MOCA Template": doc["moca_template"],
-            "Notes": doc.get("notes", "")
-        } for doc in docs])
+        st.dataframe([
+            {
+                "Date": doc["timestamp"][:19].replace("T", " "),
+                "Category": doc["category"],
+                "MOCA Template": doc["moca_template"],
+                "Notes": doc.get("notes", "")
+            }
+            for doc in docs
+        ])
 
-# TAB 3 - Access logs
+# TAB 3
 with tab3:
     st.title("Access Logs")
     logs = list(db["access_logs"].find().sort("timestamp", -1))
     if not logs:
-        st.info("No access logs found.")
+        st.info("No access logs yet.")
     else:
-        st.dataframe([{
-            "Date": log["timestamp"][:19].replace("T", " "),
-            "IP": log["ip"],
-            "City": log["city"],
-            "Country": log["country"],
-            "Browser": log["browser"]
-        } for log in logs])
+        st.dataframe([
+            {
+                "Date": log["timestamp"][:19].replace("T", " "),
+                "IP": log["ip"],
+                "City": log["city"],
+                "Country": log["country"]
+            }
+            for log in logs
+        ])
