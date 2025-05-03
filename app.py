@@ -9,59 +9,52 @@ import requests
 
 # Cargar variables de entorno
 load_dotenv()
-
-# Configuración de la página
-st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
 tz = pytz.timezone("America/Bogota")
 
-# MongoDB
+# Configuración de página
+st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
+
+# Conexión Mongo
 MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# JavaScript para obtener IP y navegador
-components.html(
-    """
-    <script>
-    function getClientData() {
-        const ipRequest = fetch("https://api.ipify.org?format=json")
-            .then(response => response.json())
-            .then(data => {
-                const ip = data.ip;
-                const userAgent = navigator.userAgent;
-                document.cookie = `client_ip=${ip}; path=/`;
-                document.cookie = `user_agent=${userAgent}; path=/`;
-                location.reload();
-            });
-    }
-    if (!document.cookie.includes("client_ip") || !document.cookie.includes("user_agent")) {
-        getClientData();
-    }
-    </script>
-    """,
-    height=0
-)
+# JavaScript para obtener la IP
+components.html("""
+<script>
+if (!document.cookie.includes("client_ip")) {
+    fetch("https://api.ipify.org?format=json")
+    .then(response => response.json())
+    .then(data => {
+        document.cookie = "client_ip=" + data.ip + "; path=/";
+        location.reload();
+    });
+}
+</script>
+""", height=0)
 
-# Leer cookies
+# Obtener IP desde cookie
 try:
     import streamlit_javascript as stj
     cookie_js = stj.st_javascript("document.cookie")
     client_ip = cookie_js.split("client_ip=")[-1].split(";")[0] if "client_ip=" in cookie_js else None
-    user_agent = cookie_js.split("user_agent=")[-1].split(";")[0] if "user_agent=" in cookie_js else None
 except Exception:
     client_ip = None
-    user_agent = None
 
-# Función para extraer nombre del navegador
+# Función para detectar navegador
 def get_browser_name(ua):
     if not ua:
         return "Unknown"
     ua = ua.lower()
-    if "edg" in ua:
-        return "Edge"
-    elif "vivaldi" in ua:
+    if "vivaldi" in ua:
         return "Vivaldi"
+    elif "edg" in ua:
+        return "Edge"
+    elif "opr" in ua or "opera" in ua:
+        return "Opera"
+    elif "brave" in ua:
+        return "Brave"
     elif "chrome" in ua and "chromium" not in ua:
         return "Chrome"
     elif "firefox" in ua:
@@ -72,12 +65,13 @@ def get_browser_name(ua):
         return "Other"
 
 # Registrar acceso
-def log_and_notify_access(ip, ua):
+def log_and_notify_access(ip):
     try:
+        ua = stj.st_javascript("navigator.userAgent")
+        browser = get_browser_name(ua)
         ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
         city = ip_data.get("city", "Unknown")
         country = ip_data.get("country", "Unknown")
-        browser = get_browser_name(ua)
 
         # Telegram
         telegram_token = os.getenv("TELEGRAM_TOKEN")
@@ -87,54 +81,56 @@ def log_and_notify_access(ip, ua):
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
 
-        # Mongo
+        # Mongo log
         db["access_logs"].insert_one({
             "timestamp": datetime.now(tz).isoformat(),
             "ip": ip or "N/A",
             "city": city,
             "country": country,
+            "user_agent": ua,
             "browser": browser
         })
+
     except Exception as e:
         st.error(f"Error registrando acceso: {e}")
 
 if "logged_ip" not in st.session_state and client_ip:
-    log_and_notify_access(client_ip, user_agent)
+    log_and_notify_access(client_ip)
     st.session_state.logged_ip = True
 
-# Mostrar IP
+# Mostrar IP al usuario
 st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
 
-# Escenarios
+# Escenarios de ejemplo
 scenarios = {
     "Lost order": {
-        "description": "Customer claims they did not receive their order, even though it's marked as delivered.",
+        "description": "Customer claims they did not receive their order.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA...",
-            "✔️ Open GIPI and verify the order status...",
-            "✔️ If marked as 'Delivered', ask if someone else might have received it...",
-            "✔️ If customer denies receipt, open BO case using MOCA template...",
-            "✔️ Inform the customer that investigation may take up to 72 hours..."
+            "✔️ Validate identity",
+            "✔️ Check GIPI delivery status",
+            "✔️ Ask if someone else received it",
+            "✔️ Open BO case",
+            "✔️ Inform about 72h investigation"
         ],
         "moca_template": "Lost Order"
     },
     "New delivery attempt": {
-        "description": "Customer requests a second delivery attempt after the first one failed.",
+        "description": "Customer requests a second delivery attempt.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA...",
-            "✔️ Check GIPI for failed delivery attempt...",
-            "✔️ Use MOCA template: 'Reschedule Delivery'...",
-            "✔️ Confirm new attempt with the customer..."
+            "✔️ Validate identity",
+            "✔️ Check failed delivery attempt",
+            "✔️ Use MOCA: Reschedule Delivery",
+            "✔️ Confirm new attempt"
         ],
         "moca_template": "Reschedule Delivery"
     },
     "Partial delivery": {
-        "description": "Customer received only part of the order; some items are missing.",
+        "description": "Customer received only part of the order.",
         "steps": [
-            "✔️ Greet the customer and validate identity following DPA...",
-            "✔️ Ask the customer which items were missing...",
-            "✔️ Check in GIPI if the order was shipped in multiple packages...",
-            "✔️ If items are in transit, provide ETA. If not, use MOCA template..."
+            "✔️ Validate identity",
+            "✔️ Ask for missing items",
+            "✔️ Check if sent in multiple packages",
+            "✔️ Provide ETA or open MOCA"
         ],
         "moca_template": "Missing Items"
     }
@@ -146,7 +142,7 @@ tab1, tab2, tab3 = st.tabs(["Register Interaction", "History", "Access Logs"])
 # TAB 1
 with tab1:
     st.title("ZARA - Logistics Transport Prototype")
-    selected = st.selectbox("Select reason:", options=list(scenarios.keys()), index=None, placeholder="Choose a scenario...")
+    selected = st.selectbox("Select reason:", list(scenarios.keys()), index=None, placeholder="Choose scenario...")
     if selected:
         st.subheader("Scenario Description")
         st.markdown(scenarios[selected]["description"])
@@ -168,35 +164,31 @@ with tab1:
             collection.insert_one(doc)
             st.success("Interaction saved successfully!")
 
-# TAB 2
+# TAB 2 - Historial
 with tab2:
     st.title("Interaction History")
     docs = list(collection.find().sort("timestamp", -1))
     if not docs:
-        st.info("No interactions found yet.")
+        st.info("No interactions found.")
     else:
-        st.dataframe([
-            {
-                "Date": doc["timestamp"][:19].replace("T", " "),
-                "Category": doc["category"],
-                "MOCA Template": doc["moca_template"],
-                "Notes": doc.get("notes", "")
-            } for doc in docs
-        ])
+        st.dataframe([{
+            "Date": doc["timestamp"][:19].replace("T", " "),
+            "Category": doc["category"],
+            "MOCA Template": doc["moca_template"],
+            "Notes": doc.get("notes", "")
+        } for doc in docs])
 
-# TAB 3
+# TAB 3 - Access logs
 with tab3:
     st.title("Access Logs")
     logs = list(db["access_logs"].find().sort("timestamp", -1))
     if not logs:
-        st.info("No access logs yet.")
+        st.info("No access logs found.")
     else:
-        st.dataframe([
-            {
-                "Date": log["timestamp"][:19].replace("T", " "),
-                "IP": log["ip"],
-                "City": log.get("city", ""),
-                "Country": log.get("country", ""),
-                "Browser": log.get("browser", "")
-            } for log in logs
-        ])
+        st.dataframe([{
+            "Date": log["timestamp"][:19].replace("T", " "),
+            "IP": log["ip"],
+            "City": log["city"],
+            "Country": log["country"],
+            "Browser": log["browser"]
+        } for log in logs])
