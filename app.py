@@ -7,10 +7,10 @@ import os
 import pytz
 import requests
 
-# Carga de variables de entorno
+# Cargar variables de entorno
 load_dotenv()
 
-# Configuración de página
+# Configuración de la página
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
 tz = pytz.timezone("America/Bogota")
 
@@ -20,51 +20,70 @@ client = MongoClient(MONGO_URI)
 db = client["zara_db"]
 collection = db["logistics_interactions"]
 
-# Inserta el JavaScript para obtener IP y guardarla como cookie, y también para obtener el navegador
+# JavaScript para obtener IP y navegador
 components.html(
     """
     <script>
-    if (!document.cookie.includes("client_ip")) {
-        fetch("https://api.ipify.org?format=json")
+    function getClientData() {
+        const ipRequest = fetch("https://api.ipify.org?format=json")
             .then(response => response.json())
             .then(data => {
-                document.cookie = "client_ip=" + data.ip + "; path=/";
+                const ip = data.ip;
+                const userAgent = navigator.userAgent;
+                document.cookie = `client_ip=${ip}; path=/`;
+                document.cookie = `user_agent=${userAgent}; path=/`;
                 location.reload();
             });
     }
-
-    // Captura el navegador y sistema operativo
-    var userAgent = navigator.userAgent;
-    if (!document.cookie.includes("client_user_agent")) {
-        document.cookie = "client_user_agent=" + userAgent + "; path=/";
+    if (!document.cookie.includes("client_ip") || !document.cookie.includes("user_agent")) {
+        getClientData();
     }
     </script>
     """,
     height=0
 )
 
-# Intentamos leer la IP y el User-Agent con streamlit_javascript
+# Leer cookies
 try:
     import streamlit_javascript as stj
     cookie_js = stj.st_javascript("document.cookie")
     client_ip = cookie_js.split("client_ip=")[-1].split(";")[0] if "client_ip=" in cookie_js else None
-    client_user_agent = cookie_js.split("client_user_agent=")[-1].split(";")[0] if "client_user_agent=" in cookie_js else None
+    user_agent = cookie_js.split("user_agent=")[-1].split(";")[0] if "user_agent=" in cookie_js else None
 except Exception:
     client_ip = None
-    client_user_agent = None
+    user_agent = None
+
+# Función para extraer nombre del navegador
+def get_browser_name(ua):
+    if not ua:
+        return "Unknown"
+    ua = ua.lower()
+    if "edg" in ua:
+        return "Edge"
+    elif "vivaldi" in ua:
+        return "Vivaldi"
+    elif "chrome" in ua and "chromium" not in ua:
+        return "Chrome"
+    elif "firefox" in ua:
+        return "Firefox"
+    elif "safari" in ua and "chrome" not in ua:
+        return "Safari"
+    else:
+        return "Other"
 
 # Registrar acceso
-def log_and_notify_access(ip, user_agent):
+def log_and_notify_access(ip, ua):
     try:
         ip_data = requests.get(f"https://ipinfo.io/{ip}/json").json() if ip else {}
         city = ip_data.get("city", "Unknown")
         country = ip_data.get("country", "Unknown")
+        browser = get_browser_name(ua)
 
         # Telegram
         telegram_token = os.getenv("TELEGRAM_TOKEN")
         telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID")
         if telegram_token and telegram_chat_id:
-            message = f"⚠️ Nueva visita a la app\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}\nNavegador: {user_agent or 'N/A'}"
+            message = f"⚠️ Nueva visita\nIP: {ip or 'N/A'}\nUbicación: {city}, {country}\nNavegador: {browser}"
             url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
             requests.post(url, data={"chat_id": telegram_chat_id, "text": message})
 
@@ -74,18 +93,17 @@ def log_and_notify_access(ip, user_agent):
             "ip": ip or "N/A",
             "city": city,
             "country": country,
-            "user_agent": user_agent or "N/A"
+            "browser": browser
         })
     except Exception as e:
         st.error(f"Error registrando acceso: {e}")
 
 if "logged_ip" not in st.session_state and client_ip:
-    log_and_notify_access(client_ip, client_user_agent)
+    log_and_notify_access(client_ip, user_agent)
     st.session_state.logged_ip = True
 
-# Mostrar IP y navegador
+# Mostrar IP
 st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
-st.markdown(f"**Navegador:** `{client_user_agent or 'Obteniendo...'}`")
 
 # Escenarios
 scenarios = {
@@ -164,21 +182,21 @@ with tab2:
                 "MOCA Template": doc["moca_template"],
                 "Notes": doc.get("notes", "")
             } for doc in docs
-        ], use_container_width=True)
+        ])
 
 # TAB 3
 with tab3:
     st.title("Access Logs")
     logs = list(db["access_logs"].find().sort("timestamp", -1))
     if not logs:
-        st.info("No access logs found.")
+        st.info("No access logs yet.")
     else:
         st.dataframe([
             {
                 "Date": log["timestamp"][:19].replace("T", " "),
-                "IP": log.get("ip", "N/A"),
-                "City": log.get("city", "Unknown"),
-                "Country": log.get("country", "Unknown"),
-                "User Agent": log.get("user_agent", "Unknown")
+                "IP": log["ip"],
+                "City": log.get("city", ""),
+                "Country": log.get("country", ""),
+                "Browser": log.get("browser", "")
             } for log in logs
-        ], use_container_width=True)
+        ])
