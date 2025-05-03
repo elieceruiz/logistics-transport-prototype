@@ -1,6 +1,6 @@
-streamlit==1.32.0
-pymongo==4.7.1
-python-dotenv==1.0.1
-pytz==2024.1
-requests==2.31.0
+streamlit==1.18.1
+pymongo==4.4.0
+requests==2.28.2
+python-dotenv==1.0.0
+pytz==2023.3
 streamlit_javascript==0.1.1
