@@ -1,5 +1,4 @@
 import streamlit as st
-import hashlib
 import streamlit.components.v1 as components
 from datetime import datetime
 from pymongo import MongoClient
@@ -8,29 +7,7 @@ import os
 import pytz
 import requests
 
-# --- PROTECCIÓN POR CONTRASEÑA ---
-def cifrar(texto):
-    return hashlib.sha256(texto.encode()).hexdigest()
-
-# Hash SHA-256 de "eliecer.ruiz"
-CLAVE_VALIDA = "8b6e07db53d7d89e24edb45ce7b34d83c43ddbb544efc08c693bbfc8e30d0ea5"
-
-if "autenticado" not in st.session_state:
-    st.session_state.autenticado = False
-
-if not st.session_state.autenticado:
-    st.set_page_config(page_title="ZARA - Login", layout="centered")
-    st.title("🔐 Acceso restringido")
-    clave = st.text_input("Ingresa la clave:", type="password")
-    if st.button("Entrar"):
-        if cifrar(clave) == CLAVE_VALIDA:
-            st.session_state.autenticado = True
-            st.experimental_rerun()
-        else:
-            st.error("❌ Clave incorrecta")
-    st.stop()
-
-# --- CONFIGURACIÓN APP ---
+# Configurar entorno
 load_dotenv()
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
 tz = pytz.timezone("America/Bogota")
@@ -95,7 +72,7 @@ if "logged_ip" not in st.session_state and client_ip:
     log_access(client_ip)
     st.session_state.logged_ip = True
 
-st.markdown(f"**Tu IP pública es:** `{client_ip or 'Obteniendo...'}`")
+st.markdown(f"**Tu IP pública es:** {client_ip or 'Obteniendo...'}")
 
 # Escenarios
 scenarios = {
@@ -188,7 +165,7 @@ with tab3:
                 "N°": i + 1,
                 "Date": log["timestamp"][:19].replace("T", " "),
                 "IP": log["ip"],
-                "City": log["city"],
-                "Country": log["country"]
+                "City": log.get("city", "Unknown"),
+                "Country": log.get("country", "Unknown")
             } for i, log in enumerate(logs)
         ], use_container_width=True)
