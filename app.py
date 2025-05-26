@@ -12,7 +12,8 @@ import requests
 def cifrar(texto):
     return hashlib.sha256(texto.encode()).hexdigest()
 
-CLAVE_VALIDA = "63e92773ea84a0e2bc896c7117dfc7a9ffbe3c42a5d02153a35d65eae1589de6"
+# Hash SHA-256 de "eliecer.ruiz"
+CLAVE_VALIDA = "a5bbfca2f6ed8c6e0d6c50f4e1925ef5d3a362d7c967a6c1ca0a86b9e4b91a8d"
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
