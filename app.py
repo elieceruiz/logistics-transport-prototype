@@ -1,4 +1,5 @@
 import streamlit as st
+import hashlib
 import streamlit.components.v1 as components
 from datetime import datetime
 from pymongo import MongoClient
@@ -7,7 +8,28 @@ import os
 import pytz
 import requests
 
-# Configurar entorno
+# --- PROTECCIÓN POR CONTRASEÑA ---
+def cifrar(texto):
+    return hashlib.sha256(texto.encode()).hexdigest()
+
+CLAVE_VALIDA = "63e92773ea84a0e2bc896c7117dfc7a9ffbe3c42a5d02153a35d65eae1589de6"
+
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    st.set_page_config(page_title="ZARA - Login", layout="centered")
+    st.title("🔐 Acceso restringido")
+    clave = st.text_input("Ingresa la clave:", type="password")
+    if st.button("Entrar"):
+        if cifrar(clave) == CLAVE_VALIDA:
+            st.session_state.autenticado = True
+            st.experimental_rerun()
+        else:
+            st.error("❌ Clave incorrecta")
+    st.stop()
+
+# --- CONFIGURACIÓN APP ---
 load_dotenv()
 st.set_page_config(page_title="ZARA - Logistics Prototype", layout="centered")
 tz = pytz.timezone("America/Bogota")
@@ -165,7 +187,7 @@ with tab3:
                 "N°": i + 1,
                 "Date": log["timestamp"][:19].replace("T", " "),
                 "IP": log["ip"],
-                "City": log.get("city", "Unknown"),
-                "Country": log.get("country", "Unknown")
+                "City": log["city"],
+                "Country": log["country"]
             } for i, log in enumerate(logs)
         ], use_container_width=True)
